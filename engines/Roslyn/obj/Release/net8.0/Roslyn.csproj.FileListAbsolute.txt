@@ -1,0 +1,5 @@
+C:\Users\Arle Andino\Documents\Codex\2026-11-05\referenced-chatgpt-conversation-this-is-an\outputs\MapaLocal\engines\Roslyn\obj\Release\net8.0\Roslyn.csproj.AssemblyReference.cache
+C:\Users\Arle Andino\Documents\Codex\2026-11-05\referenced-chatgpt-conversation-this-is-an\outputs\MapaLocal\engines\Roslyn\obj\Release\net8.0\Roslyn.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Arle Andino\Documents\Codex\2026-11-05\referenced-chatgpt-conversation-this-is-an\outputs\MapaLocal\engines\Roslyn\obj\Release\net8.0\Roslyn.AssemblyInfoInputs.cache
+C:\Users\Arle Andino\Documents\Codex\2026-11-05\referenced-chatgpt-conversation-this-is-an\outputs\MapaLocal\engines\Roslyn\obj\Release\net8.0\Roslyn.AssemblyInfo.cs
+C:\Users\Arle Andino\Documents\Codex\2026-11-05\referenced-chatgpt-conversation-this-is-an\outputs\MapaLocal\engines\Roslyn\obj\Release\net8.0\Roslyn.csproj.CoreCompileInputs.cache
