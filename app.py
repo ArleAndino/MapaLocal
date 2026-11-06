@@ -7,9 +7,13 @@ import secrets
 import threading
 from urllib.parse import urlsplit, parse_qs
 import webbrowser
+import subprocess
+import sys
 from analyzer import scan, read
 from graph_query import query, route
 from history import History, validate_view
+from deep_analysis import capabilities
+from git_info import git_context
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -24,13 +28,13 @@ class Server(ThreadingHTTPServer):
         self.history = History(history_dir or Path(__file__).parent / 'analyses')
         self.job = None
 
-    def run_scan(self, job_id, root, excludes):
+    def run_scan(self, job_id, root, excludes, mode='normal'):
         def progress(percent, phase, detail):
             self.job = {'id': job_id, 'state': 'running', 'percent': percent, 'phase': phase, 'detail': detail}
         try:
-            graph = scan(root, excludes, progress=progress)
+            graph = scan(root, excludes, progress=progress, mode=mode)
             graph['analysis_id'] = job_id
-            graph['scan_options'] = {'extra_excludes': excludes}
+            graph['scan_options'] = {'extra_excludes': excludes,'mode':mode}
             progress(98, 'Guardando JSON', 'Guardando el análisis en este equipo…')
             snapshot = self.history.save(graph)
             self.graph = graph
@@ -63,7 +67,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'error': 'Host no permitido'}, 403)
         url = urlsplit(self.path)
         if url.path == '/api/config':
-            return self.reply({'token': self.server.token, 'initial': self.server.initial})
+            return self.reply({'token': self.server.token, 'initial': self.server.initial,
+                               'version':(Path(__file__).parent/'VERSION').read_text().strip(),'engines':capabilities()})
         if url.path in {'/api/progress', '/api/history', '/api/graph'}:
             if self.headers.get('X-Local-Token') != self.server.token:
                 return self.reply({'error': 'Token requerido'}, 403)
@@ -84,17 +89,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply({'error': 'Token requerido'}, 403)
             graph = self.server.graph
             node_id = parse_qs(url.query).get('id', [''])[0]
-            if not graph or node_id not in {n['id'] for n in graph['nodes']}:
+            node=next((n for n in graph['nodes'] if n['id']==node_id),None) if graph else None
+            if not node:
                 return self.reply({'error': 'Archivo no indexado'}, 404)
             root = Path(graph['root'])
-            path = (root / node_id).resolve()
+            path = (root / node.get('source_file',node_id)).resolve()
             if not path.is_relative_to(root):
                 return self.reply({'error': 'Ruta fuera del repositorio'}, 403)
             try:
                 return self.reply({'source': read(path)})
             except (OSError, ValueError) as e:
                 return self.reply({'error': str(e)}, 400)
-        files = {'/theme.js': ('theme.js', 'text/javascript'), '/workflow.js': ('workflow.js', 'text/javascript'), '/queries.js': ('queries.js', 'text/javascript'), '/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+        files = {'/product.js': ('product.js','text/javascript'), '/layouts.js': ('layouts.js','text/javascript'), '/layout-worker.js': ('layout-worker.js','text/javascript'), '/theme.js': ('theme.js', 'text/javascript'), '/workflow.js': ('workflow.js', 'text/javascript'), '/queries.js': ('queries.js', 'text/javascript'), '/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
         if url.path not in files:
             return self.reply({'error': 'No encontrado'}, 404)
         name, mime = files[url.path]
@@ -111,6 +117,18 @@ class Handler(BaseHTTPRequestHandler):
         origin = f'http://127.0.0.1:{self.server.server_port}'
         if not self.valid_host() or self.headers.get('X-Local-Token') != self.server.token or self.headers.get('Origin', origin) != origin:
             return self.reply({'error': 'Solicitud no permitida'}, 403)
+        if self.path in {'/api/open-folder','/api/project-info'}:
+            try:
+                if self.path=='/api/open-folder':
+                    result=subprocess.run([sys.executable,str(Path(__file__).parent/'pick_folder.py')],capture_output=True,text=True,encoding='utf-8',timeout=180,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                    if result.returncode:raise ValueError('No se pudo abrir el selector de carpetas. Pega la ruta manualmente.')
+                    return self.reply(json.loads(result.stdout))
+                payload=json.loads(body);root=Path(payload.get('root','')).expanduser().resolve()
+                if not root.is_dir():raise ValueError('La carpeta no existe.')
+                metadata,_,warnings=git_context(root)
+                return self.reply({'root':str(root),'git':metadata,'warnings':warnings})
+            except (OSError,ValueError,TypeError,subprocess.TimeoutExpired) as error:
+                return self.reply({'error':str(error)},400)
         if self.path in {'/api/scan/start', '/api/history/save', '/api/history/load'}:
             if not self.server.lock.acquire(blocking=False):
                 return self.reply({'error': 'Hay un análisis en curso; espera a que termine.'}, 409)
@@ -119,11 +137,13 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(body)
                 if self.path == '/api/scan/start':
                     root, excludes = payload.get('root'), payload.get('excludes', [])
+                    mode=payload.get('mode','normal')
+                    if mode not in {'normal','deep'}:raise ValueError('Modo inválido.')
                     if not isinstance(root, str) or not root.strip() or not isinstance(excludes, list) or not all(isinstance(x,str) for x in excludes):
                         raise ValueError('Ruta o exclusiones inválidas.')
                     job_id = secrets.token_hex(16)
                     self.server.job = {'id': job_id, 'state': 'running', 'percent': 0, 'phase': 'Iniciando', 'detail': ''}
-                    threading.Thread(target=self.server.run_scan, args=(job_id,root,excludes), daemon=True).start()
+                    threading.Thread(target=self.server.run_scan, args=(job_id,root,excludes,mode), daemon=True).start()
                     background = True
                     return self.reply({'id': job_id}, 202)
                 if self.path == '/api/history/load':

@@ -20,3 +20,6 @@ analyses/
 !.env.example
 .DS_Store
 Thumbs.db
+node_modules/
+bin/
+obj/
