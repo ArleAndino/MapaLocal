@@ -81,7 +81,9 @@ def config(path, root, seen=None):
                              for key, values in opts['paths'].items()]
     return settings
 
-def scan(root_path, extra_excludes=(), progress=None):
+def scan(root_path, extra_excludes=(), progress=None, mode='normal'):
+    if mode not in {'normal','deep'}:
+        raise ValueError('Modo de análisis inválido.')
     report = progress or (lambda percent, phase, detail: None)
     report(0, 'Descubriendo archivos', 'Calculando el total de archivos…')
     root = Path(root_path).expanduser().resolve()
@@ -115,24 +117,28 @@ def scan(root_path, extra_excludes=(), progress=None):
                     warnings.append(f'{p.relative_to(root)}: configuración no interpretada ({e})')
             if p.suffix == '.csproj':
                 projects.append(p)
-            if p.suffix.lower() in EXTENSIONS:
+            if p.suffix.lower() in (EXTENSIONS | ({'.html'} if mode=='deep' else set())):
                 paths.append(p)
-                if len(paths) > MAX_FILES:
-                    raise ValueError(f'El repositorio supera {MAX_FILES} archivos. Selecciona una subcarpeta o añade exclusiones.')
+                limit=2000 if mode=='deep' else MAX_FILES
+                if len(paths) > limit:
+                    raise ValueError(f'El repositorio supera {limit} archivos para este modo. Selecciona una subcarpeta o añade exclusiones.')
     nodes, source_by_id, path_ids = [], {}, {}
     report(10, 'Leyendo símbolos', f'{len(paths)} archivos encontrados')
     for index, p in enumerate(paths):
         report(10 + int(35 * index / max(1, len(paths))), 'Leyendo símbolos', p.relative_to(root).as_posix())
         node_id = p.relative_to(root).as_posix()
+        diagnostics=[]
         try:
             source = read(p)
         except (OSError, ValueError) as e:
             warnings.append(f'{node_id}: {e}')
-            continue
+            source=''
+            diagnostics.append({'severity':'error' if isinstance(e,OSError) else 'warning','line':1,'message':str(e),'engine':'Lectura'})
         language = {'.cs': 'C#', '.ts': 'TypeScript', '.tsx': 'TypeScript',
-                    '.css': 'CSS', '.scss': 'SCSS', '.sass': 'Sass', '.less': 'Less'}.get(p.suffix.lower(), 'JavaScript')
+                    '.css': 'CSS', '.scss': 'SCSS', '.sass': 'Sass', '.less': 'Less', '.html':'HTML'}.get(p.suffix.lower(), 'JavaScript')
         project = next((x.relative_to(root).as_posix() for x in sorted(projects, key=lambda x: -len(x.parts)) if p.is_relative_to(x.parent)), '')
         node = {'id': node_id, 'name': p.name, 'language': language,
+                'kind':'file','source_file':node_id,'diagnostics':diagnostics,'has_errors':any(d['severity']=='error' for d in diagnostics),
                 'folder': p.parent.relative_to(root).as_posix(), 'project': project,
                 'lines': source.count('\n') + 1, 'symbols': symbols(source, language) if language in {'C#','TypeScript','JavaScript'} else [], 'imports': []}
         nodes.append(node)
@@ -187,6 +193,8 @@ def scan(root_path, extra_excludes=(), progress=None):
         masked_code = mask(code, True)
         p = root / n['id']
         style_language = n['language'] in {'CSS', 'SCSS', 'Sass', 'Less'}
+        if n['language']=='HTML':
+            continue
         style_specs = []
         if style_language:
             for match in re.finditer(r'@(import|use|forward)\s+([^;\n]+)', code):
@@ -249,6 +257,11 @@ def scan(root_path, extra_excludes=(), progress=None):
             if target:
                 edge(n['id'], target, 'style' if Path(target).suffix.lower() in {'.css','.scss','.sass','.less'} else 'import', spec)
     report(95, 'Calculando métricas', f'{len(nodes)} nodos · {len(edges)} aristas')
-    return enrich({'root': str(root), 'git': git, 'nodes': nodes, 'edges': edges, 'warnings': warnings,
+    result = enrich({'root': str(root), 'git': git, 'nodes': nodes, 'edges': edges, 'warnings': warnings,'analysis_mode':mode,
             'summary': {'files': len(nodes), 'edges': len(edges),
+                        'errors':sum(n['has_errors'] for n in nodes),
                         'unresolved': sum(i['status'] == 'unresolved' for n in nodes for i in n['imports'])}})
+    if mode=='deep':
+        from deep_analysis import analyze_deep
+        result=analyze_deep(result,source_by_id,report)
+    return result

@@ -71,18 +71,19 @@ def query(graph, sql):
         connection.executescript('''
           CREATE TABLE nodes(id TEXT PRIMARY KEY, name TEXT, language TEXT, folder TEXT,
             lines INTEGER, in_degree INTEGER, out_degree INTEGER, neighbors INTEGER,
-            degree INTEGER, references_in INTEGER, references_out INTEGER, weight INTEGER);
-          CREATE TABLE edges(source TEXT, target TEXT, kind TEXT, detail TEXT);
+            degree INTEGER, references_in INTEGER, references_out INTEGER, weight INTEGER,
+            kind TEXT, source_file TEXT, has_errors INTEGER);
+          CREATE TABLE edges(source TEXT, target TEXT, kind TEXT, detail TEXT, confidence TEXT, file TEXT, line INTEGER);
           CREATE TABLE connections(source TEXT, target TEXT, weight INTEGER);
           CREATE INDEX edge_source ON edges(source);
           CREATE INDEX edge_target ON edges(target);
         ''')
         fields = ['id','name','language','folder','lines','in_degree','out_degree','neighbors',
-                  'degree','references_in','references_out','weight']
-        connection.executemany('INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                  'degree','references_in','references_out','weight','kind','source_file','has_errors']
+        connection.executemany('INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                                [[n.get(k) for k in fields] for n in graph['nodes']])
-        connection.executemany('INSERT INTO edges VALUES (?,?,?,?)',
-                               [[e[k] for k in ['source','target','kind','detail']] for e in graph['edges']])
+        connection.executemany('INSERT INTO edges VALUES (?,?,?,?,?,?,?)',
+                               [[e.get(k) for k in ['source','target','kind','detail','confidence','file','line']] for e in graph['edges']])
         connection.executemany('INSERT INTO connections VALUES (?,?,?)',
                                [[e[k] for k in ['source','target','weight']] for e in graph['connections']])
         allowed_functions = {'count','sum','avg','min','max','round','abs','lower','upper',

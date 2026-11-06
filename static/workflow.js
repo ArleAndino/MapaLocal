@@ -18,18 +18,18 @@ function pickRoutePoint(id){
   if(picking==='A'){$('routeA').value=id;picking='B';status('A: '+id+'. Ahora selecciona el punto B.');}
   else{$('routeB').value=id;picking=null;routePickButton.textContent='Buscar recorrido A → B';$('queryDialog').showModal();refreshQuerySummary();status('Puntos A y B seleccionados. Pulsa Buscar recorrido.');}
 }
-function setBusy(value){busy=value;$('scanButton').disabled=value;routePickButton.disabled=value;saveViewButton.disabled=value;historyButton.disabled=value;queryButton.disabled=value;$('export').disabled=value||!graph.nodes.length;pngButton.disabled=value;}
+function setBusy(value){busy=value;if($('analyzeMenu'))$('analyzeMenu').disabled=value;if($('analysisMode'))$('analysisMode').disabled=value;if($('layoutMode'))$('layoutMode').disabled=value;$('scanButton').disabled=value;routePickButton.disabled=value;saveViewButton.disabled=value;historyButton.disabled=value;queryButton.disabled=value;$('export').disabled=value||!graph.nodes.length;pngButton.disabled=value;}
 function progress(percent,phase,detail){$('scanProgress').hidden=false;hideProgress.hidden=percent<100;$('progressBar').value=percent;$('progressText').textContent=`${percent}% · ${phase}`;$('progressDetail').textContent=detail||'';}
 function adoptGraph(data,view=null){
-  graph=data;updateBranch(data);selected=null;picking=null;routePickButton.textContent='Buscar recorrido A → B';positions=new Map();
+  resetLayouts(view);graph=data;updateBranch(data);refreshProjectInfo();$('analysisMode').value=data.analysis_mode||'normal';$('errorsOnly').checked=false;$('nodeScope').value='';selected=null;picking=null;routePickButton.textContent='Buscar recorrido A → B';positions=new Map();
   $('neighbors').checked=false;$('search').value='';$('language').value='';$('kind').value='';$('root').value=data.root;
   $('folder').replaceChildren(new Option('Todas las carpetas',''));[...new Set(graph.nodes.map(n=>n.folder))].sort().forEach(f=>$('folder').add(new Option(f,f)));
   $('stats').textContent=`${data.summary.files} archivos · ${data.summary.edges} enlaces`;$('export').disabled=false;$('empty').hidden=true;
   resetQueries();layout();
   if(view){
     for(const n of graph.nodes){const p=view.positions&&view.positions[n.id];if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y))positions.set(n.id,{x:p.x,y:p.y});}
-    for(const id of ['search','language','folder','kind'])if(view.filters&&typeof view.filters[id]==='string')$(id).value=view.filters[id];
-    $('neighbors').checked=Boolean(view.filters&&view.filters.neighbors);
+    for(const id of ['search','language','folder','kind','nodeScope'])if(view.filters&&typeof view.filters[id]==='string')$(id).value=view.filters[id];
+    $('neighbors').checked=Boolean(view.filters&&view.filters.neighbors);$('errorsOnly').checked=Boolean(view.filters&&view.filters.errorsOnly);
     selected=graph.nodes.some(n=>n.id===view.selected)?view.selected:null;
     if(view.route&&Array.isArray(view.route.nodes)&&Array.isArray(view.route.steps))routeResult=view.route;
     $('routeA').value=view.routeA||'';$('routeB').value=view.routeB||'';$('routeDirection').value=view.routeDirection||'directed';
@@ -40,9 +40,9 @@ function adoptGraph(data,view=null){
   inspect();refreshQuerySummary();
 }
 $('scan').onsubmit=async e=>{
-  e.preventDefault();if(busy)return;setBusy(true);picking=null;routePickButton.textContent='Buscar recorrido A → B';progress(0,'Iniciando análisis','El porcentaje se calcula por fases; no es una estimación de tiempo.');
+  e.preventDefault();if(busy)return;pauseMagnetism();setBusy(true);picking=null;routePickButton.textContent='Buscar recorrido A → B';progress(0,'Iniciando análisis','El porcentaje se calcula por fases; no es una estimación de tiempo.');
   try{
-    const job=await postQuery('/api/scan/start',{root:$('root').value,excludes:$('excludes').value.split(',').map(x=>x.trim()).filter(Boolean)});
+    const job=await postQuery('/api/scan/start',{root:$('root').value,mode:$('analysisMode').value,excludes:$('excludes').value.split(',').map(x=>x.trim()).filter(Boolean)});
     let state;
     do{
       state=await api('/api/progress?id='+encodeURIComponent(job.id));
@@ -52,13 +52,13 @@ $('scan').onsubmit=async e=>{
     }while(state.state==='running');
     progress(99,'Dibujando grafo','Preparando nodos y conexiones…');
     const data=await api('/api/graph?id='+encodeURIComponent(job.id));adoptGraph(data);
-    progress(100,'Análisis completado y guardado en JSON',`${data.nodes.length} archivos · ${data.edges.length} aristas`);
-    status(`Guardado en el historial local · ${data.summary.unresolved} imports sin resolver · ${data.warnings.length} avisos. ${data.warnings.slice(0,3).join(' | ')}`);
+    progress(100,'Análisis completado y guardado en JSON',`${data.summary.files} archivos · ${data.nodes.length} nodos · ${data.edges.length} aristas`);
+    status(`Guardado en el historial local · ${data.summary.unresolved} imports sin resolver · ${data.warnings.length} avisos. ${data.warnings.slice(0,3).join(' | ')}`);showCoverage();
   }catch(error){hideProgress.hidden=false;$('progressText').textContent='No se completó el análisis';$('progressDetail').textContent=error.message;status(error.message);}
   finally{setBusy(false);}
 };
-function currentView(){return {positions:Object.fromEntries(positions),camera:{...camera},viewport:{width,height},selected,
-  filters:{search:$('search').value,language:$('language').value,folder:$('folder').value,kind:$('kind').value,neighbors:$('neighbors').checked},
+function currentView(){pauseMagnetism();layoutCache[layoutMode]=snapshotLayout();return {layoutMode,layouts:layoutCache,pinned:[...pinned],positions:Object.fromEntries(positions),camera:{...camera},viewport:{width,height},selected,
+  filters:{search:$('search').value,language:$('language').value,folder:$('folder').value,kind:$('kind').value,neighbors:$('neighbors').checked,nodeScope:$('nodeScope').value,errorsOnly:$('errorsOnly').checked},
   route:routeResult,routeA:$('routeA').value,routeB:$('routeB').value,routeDirection:$('routeDirection').value,sql:$('sql').value};}
 async function saveView(){
   if(!graph.analysis_id){status('Analiza un repositorio antes de guardar la vista.');return;}
@@ -84,4 +84,4 @@ function downloadGraphImage(){
   const output=document.createElement('canvas');output.width=canvas.width;output.height=canvas.height;const context=output.getContext('2d');context.fillStyle=themeColor('background');context.fillRect(0,0,output.width,output.height);context.drawImage(canvas,0,0);
   output.toBlob(blob=>{if(blob){downloadBlob(blob,'mapa-local.png');status('Imagen PNG descargada: muestra el encuadre y los filtros actuales.');}else status('No se pudo crear la imagen.');},'image/png');
 }
-initializeApp();
+

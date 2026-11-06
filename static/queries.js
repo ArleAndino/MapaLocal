@@ -36,12 +36,12 @@ $('findRoute').onclick=async()=>{
     if(!result.found){$('routeResults').textContent='No existe un recorrido con esta dirección y tipo de enlace.';draw();return;}
     $('routeResults').append(element('p',`${result.hops} saltos · ${result.nodes.length} nodos. Recorrido mínimo por número de aristas; no representa tráfico de red.`));
     const list=element('ol','');result.nodes.forEach((id,i)=>{
-      const item=element('li','');item.append(button(id,()=>{$('queryDialog').close();select(id,true);}));
-      if(i){const step=result.steps[i-1];item.append(element('small',`${step.reversed?'← Recorrida en sentido inverso':'→'} ${step.edge.kind}: ${step.edge.detail}`));}
+      const item=element('li','');item.append(button(id,()=>{$('queryDialog').close();revealNode(id);}));
+      if(i){const step=result.steps[i-1];if(step.edge.file){const file=graph.nodes.find(n=>n.id===step.edge.file);if(file)item.append(button('Ver referencia L'+step.edge.line,()=>showSource(file,step.edge.line||1)));}item.append(element('small',`${step.reversed?'← Recorrida en sentido inverso':'→'} ${step.edge.kind} · ${step.edge.confidence||'referencia'} · ${step.edge.file||''}:${step.edge.line||''}: ${step.edge.detail}`));}
       list.append(item);
     });$('routeResults').append(list);
     $('routeResults').append(button('Ver recorrido en el grafo',()=>{
-      $('search').value='';$('language').value='';$('folder').value='';$('kind').value='';$('neighbors').checked=false;
+      $('search').value='';$('language').value='';$('folder').value='';$('kind').value='';$('neighbors').checked=false;$('nodeScope').value='';$('errorsOnly').checked=false;pauseMagnetism();
       filter();const original=visible;visible=graph.nodes.filter(n=>result.nodes.includes(n.id));fit();visible=original;draw();$('queryDialog').close();
       status('Recorrido resaltado en naranja. Usa Consultar grafo → Quitar recorrido para volver a la vista normal.');
     }));draw();
@@ -69,6 +69,6 @@ $('runSql').onclick=async()=>{
   try{const result=await postQuery('/api/query',{sql:$('sql').value});$('queryResults').replaceChildren();
     $('queryResults').append(element('p',`${result.rows.length} filas${result.truncated?' · resultado truncado a 500; usa WHERE o LIMIT':''}. Consulta sobre todo el repositorio.`));
     const table=element('table',''),head=element('thead',''),header=element('tr','');result.columns.forEach(c=>header.append(element('th',c)));head.append(header);table.append(head);
-    const ids=new Set(graph.nodes.map(n=>n.id)),body=element('tbody','');result.rows.forEach(row=>{const tr=element('tr','');row.forEach(value=>{const cell=element('td','');if(typeof value==='string'&&ids.has(value))cell.append(button(value,()=>{$('queryDialog').close();select(value,true);}));else cell.textContent=value===null?'NULL':String(value);tr.append(cell);});body.append(tr);});table.append(body);$('queryResults').append(table);
+    const ids=new Set(graph.nodes.map(n=>n.id)),body=element('tbody','');result.rows.forEach(row=>{const tr=element('tr','');row.forEach(value=>{const cell=element('td','');if(typeof value==='string'&&ids.has(value))cell.append(button(value,()=>{$('queryDialog').close();revealNode(value);}));else cell.textContent=value===null?'NULL':String(value);tr.append(cell);});body.append(tr);});table.append(body);$('queryResults').append(table);
   }catch(error){$('queryResults').textContent=error.message;}finally{$('runSql').disabled=false;}
 };
