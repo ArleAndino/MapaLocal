@@ -1,0 +1,15 @@
+---
+description: Versionado y commits locales de Grapho Ma
+alwaysApply: true
+---
+
+Sigue las instrucciones de `AGENTS.md` en la raíz del proyecto.
+
+Después de cada cambio solicitado, completo y verificado:
+1. Revisa el diff y las comprobaciones pertinentes.
+2. Actualiza VERSION y CHANGELOG.md.
+3. Crea un commit descriptivo y la etiqueta local vX.Y.Z.
+4. Informa de la versión y del hash corto al usuario.
+
+Esta práctica está autorizada por el usuario para todo el proyecto.
+No publiques ni hagas push sin petición específica.

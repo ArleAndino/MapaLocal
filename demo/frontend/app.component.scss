@@ -1,0 +1,3 @@
+@use './palette';
+@import './reset.css';
+h1 { color: palette.$accent; }

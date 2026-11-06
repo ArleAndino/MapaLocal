@@ -1,0 +1,22 @@
+# Generated Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Personal analysis history and generated exports
+analyses/
+*.zip
+*.png
+*.log
+*.tmp
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
